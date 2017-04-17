@@ -83,12 +83,12 @@ fn new_rect(pos: &Position, size: &Size) -> Rect {
     }
 } 
 
-fn get_screen_x(i32 position, i32 screen_width) {
+fn get_screen_x(position: i32, screen_width: i32) -> f32 {
     let screen_x = (2.0 * position as f32) / screen_width as f32;
     screen_x - 1.0
 }
 
-fn get_screen_y(i32 position, i32 screen_height) {
+fn get_screen_y(position: i32, screen_height: i32) -> f32 {
     let screen_y = (2.0 * position as f32) / screen_height as f32;
     1.0 - screen_y
 }
@@ -203,12 +203,27 @@ impl<'a> UI<'a> {
         let mut render_jobs: Vec<RenderJob>;
         render_jobs = Vec::new();
 
+        let mut last_parent = 0;
+        let mut last_rect = self.screen_rect.clone();
+
         for widget in &self.widgets {
+            if(last_parent < widget.0) {
+                rects.push(last_rect);
+                last_parent = widget.0;
+            }
+            else if(last_parent > widget.0) {
+                rects.pop();
+                last_rect = rects.last().unwrap().clone();
+                last_parent = widget.0;
+            }
+            else {
+                last_rect = rects.last().unwrap().clone();
+            }            
             let mut rect = get_widget_rect(&widget.1);
                    
             match rect {
                 Some(mut rect) => {
-                    let parent_rect = rects.last().unwrap().clone();
+                    let parent_rect = last_rect;
                     
                     rect.x+= parent_rect.x;
                     rect.y+= parent_rect.y;
@@ -221,28 +236,33 @@ impl<'a> UI<'a> {
                         rect.h = parent_rect.h - rect.y;
                     }
 
-                    let vertex1 = Vertex { position: [rect.x as f32 / self.screen_rect.w as f32, rect.y as f32 / self.screen_rect.h as f32] };
-                    let vertex2 = Vertex { position: [(rect.x as f32 + rect.w as f32) / self.screen_rect.w as f32,  rect.y as f32 / self.screen_rect.h as f32] };
-                    let vertex3 = Vertex { position: [rect.x as f32 / self.screen_rect.w as f32, (rect.y as f32 + rect.h as f32) / self.screen_rect.h as f32] };
-                    let vertex4 = Vertex { position: [(rect.x as f32 + rect.w as f32) / self.screen_rect.w as f32, (rect.y as f32 + rect.h as f32) / self.screen_rect.h as f32] };
+                    let vertex1 = Vertex { position: [get_screen_x(rect.x, self.screen_rect.w),             
+                                                      get_screen_y(rect.y, self.screen_rect.h)] };
+                    let vertex2 = Vertex { position: [get_screen_x(rect.x + rect.w, self.screen_rect.w),    
+                                                      get_screen_y(rect.y, self.screen_rect.h)] };
+                    let vertex3 = Vertex { position: [get_screen_x(rect.x, self.screen_rect.w),             
+                                                      get_screen_y(rect.y + rect.h, self.screen_rect.h)] };
+                    let vertex4 = Vertex { position: [get_screen_x(rect.x  + rect.w, self.screen_rect.w),   
+                                                      get_screen_y(rect.y + rect.h, self.screen_rect.h)] };
 
                     let shape = vec![vertex1, vertex2, vertex3, vertex2, vertex3, vertex4];
 
-                    println!("{}, {}", vertex1.position[0], vertex1.position[1]);
-                    println!("{}, {}", vertex2.position[0], vertex2.position[1]);
-                    println!("{}, {}", vertex3.position[0], vertex3.position[1]);
-                    println!("{}, {}", vertex4.position[0], vertex4.position[1]);
+                    //println!("{}, {}", vertex1.position[0], vertex1.position[1]);
+                    //println!("{}, {}", vertex2.position[0], vertex2.position[1]);
+                    //println!("{}, {}", vertex3.position[0], vertex3.position[1]);
+                    //println!("{}, {}", vertex4.position[0], vertex4.position[1]);
 
                     let index_buffer = glium::index::NoIndices(glium::index::PrimitiveType::TrianglesList);
 
                     let newJob = RenderJob::Shape {vertices: shape, indices: index_buffer};
 
                     render_jobs.push( newJob );
+                    last_rect = rect;
                 }
                 _ => {
                     match widget.1 {
                         Widget::Label{ref position, ref text} => {
-                            let parent_rect = rects.last().unwrap().clone();
+                            let parent_rect = last_rect;
                             let rendered_text = glium_text::TextDisplay::new(
                                 self.text_system,
                                 &self.font,
@@ -250,9 +270,9 @@ impl<'a> UI<'a> {
                             let text_width = rendered_text.get_width();
                             let matrix:[[f32; 4]; 4] = cgmath::Matrix4::new(
                                 0.2 / text_width, 0.0, 0.0, 0.0,
-                                0.0, 0.2 * (800 as f32) / (600 as f32) / text_width, 0.0, 0.0,
+                                0.0, 0.2 * (800.0) / (600.0) / text_width, 0.0, 0.0,
                                 0.0, 0.0, 1.0, 0.0,
-                                get_screen_x(position.x + parent_rect.x, self.screen_rect.w), -1.0, 0.0, 1.0f32,
+                                get_screen_x(position.x + parent_rect.x, self.screen_rect.w), get_screen_y(position.y + parent_rect.y, self.screen_rect.h), 0.0, 1.0f32,
                             ).into();
                             let color = (1.0, 1.0, 1.0, 1.0);
                             let new_job = RenderJob::Text {text: rendered_text, 
