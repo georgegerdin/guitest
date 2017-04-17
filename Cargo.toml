@@ -1,0 +1,10 @@
+[package]
+name = "gliumtest"
+version = "0.1.0"
+authors = ["george"]
+
+[dependencies]
+glium="*"
+glutin="*"
+glium_text="*"
+cgmath="*"
