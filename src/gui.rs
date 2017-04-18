@@ -30,6 +30,12 @@ struct Rect {
     h: i32,
 }
 
+impl std::fmt::Display for Rect {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "x: {}, y: {}, w: {}, h: {}", self. x, self.y, self.w, self.h)
+    }
+}
+
 pub enum Widget {
     Form {      position: Position, 
                 size: Size,
@@ -196,29 +202,44 @@ impl<'a> UI<'a> {
 
 
     pub fn render(&self) -> Vec<RenderJob> {
-        let mut rects: Vec<Rect>;
-        rects = Vec::new();
-        rects.push(self.screen_rect);
-        
         let mut render_jobs: Vec<RenderJob>;
         render_jobs = Vec::new();
 
-        let mut last_parent = 0;
+        let mut last_parent = -1;
         let mut last_rect = self.screen_rect.clone();
 
+        let mut rects: Vec<(i32, Rect)>;
+        rects = Vec::new();
+        rects.push( (last_parent, last_rect) );
+
+        let mut index = 0; 
         for widget in &self.widgets {
+            println!("For for widget in index={}, last_parent={}, last_rect={}",
+                index, last_parent, last_rect );
+
+            //If the new widget is a child widget of the last widget
             if(last_parent < widget.0) {
-                rects.push(last_rect);
+                rects.push( (widget.0, last_rect) );
                 last_parent = widget.0;
+                println!("This is a child widget last_parent={}, last_rect={}", last_parent, last_rect);
             }
+            //If the new widget is higher in the tree
             else if(last_parent > widget.0) {
-                rects.pop();
-                last_rect = rects.last().unwrap().clone();
-                last_parent = widget.0;
+                while(last_parent != widget.0) {
+                    println!("last_parent {}, widget.0 {}", last_parent, widget.0);
+                    rects.pop();
+                    let (lp, lr) = rects.last().unwrap().clone();
+                    last_parent = lp;
+                    last_rect = lr;
+                }
+                println!("Widget higher in the tree last_parent={}, last_rect={}", last_parent, last_rect);
             }
+            //The widget has the same parent as the previous one
             else {
-                last_rect = rects.last().unwrap().clone();
-            }            
+                let (last_parent, last_rect) = rects.last().unwrap().clone();
+                println!("Widget is sibling last_parent={}, last_rect={}.", last_parent, last_rect);
+            }
+
             let mut rect = get_widget_rect(&widget.1);
                    
             match rect {
@@ -284,7 +305,30 @@ impl<'a> UI<'a> {
                     }
                 }
             }
+            index+= 1;
         }
         render_jobs
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_gui_rendering() {
+        use glium::{DisplayBuild, Surface};
+        let display = glium::glutin::WindowBuilder::new()
+            .with_dimensions(800, 600)
+            .build_glium()
+            .unwrap();
+        let text_system = glium_text::TextSystem::new(&display);
+
+        let mut ui = UI::new(800, 600, &display, &text_system);
+        let main_form = ui.add_widget(-1, new_form(50, 50, 400, 300));
+        let main_label = ui.add_widget(main_form, new_label(10, 10, "Hello."));
+        let second_form = ui.add_widget(-1, new_form(100, 100, 200, 200));
+
+        assert!(ui.render().len() == 3);
     }
 }
