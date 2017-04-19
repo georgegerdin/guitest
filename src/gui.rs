@@ -30,6 +30,14 @@ struct Rect {
     h: i32,
 }
 
+#[derive(Copy, Clone)]
+struct FloatRect {
+    x1: f32,
+    y1: f32,
+    x2: f32,
+    y2: f32,
+}
+
 impl std::fmt::Display for Rect {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "x: {}, y: {}, w: {}, h: {}", self. x, self.y, self.w, self.h)
@@ -46,6 +54,7 @@ pub enum Widget {
     Button {    position: Position,
                 size: Size,
                 pressed: bool,
+                text: String,
                 },
     Textbox {   position: Position,
                 size: Size,
@@ -80,6 +89,15 @@ pub fn new_label(ix: i32, iy: i32, itext: &str) -> Widget {
     }
 }
 
+pub fn new_button(ix: i32, iy: i32, iw: i32, ih: i32, itext: &str) -> Widget {
+    Widget::Button {
+        position: Position {x: ix, y: iy},
+        size: Size {w: iw, h: ih},
+        pressed: false,
+        text: itext.to_string(),
+    }
+}
+
 fn new_rect(pos: &Position, size: &Size) -> Rect {
     Rect {
         x: pos.x,
@@ -99,12 +117,30 @@ fn get_screen_y(position: i32, screen_height: i32) -> f32 {
     1.0 - screen_y
 }
 
+fn to_screen_rect(irect: Rect, screen_width: i32, screen_height: i32) -> FloatRect {
+    FloatRect {
+        x1: get_screen_x(irect.x, screen_width),
+        y1: get_screen_y(irect.y, screen_height),
+        x2: get_screen_x(irect.x + irect.w - 1, screen_width),
+        y2: get_screen_y(irect.y + irect.h - 1, screen_height),
+    }
+}
+
 fn get_widget_rect(widget: &Widget) -> Option<Rect> {
     match *widget {
         Widget::Form {ref position, ref size} => Some(new_rect(position, size)),
         Widget::Label{..} => None,
         Widget::Button{ref position, ref size, ..} => Some(new_rect(position, size)),
         Widget::Textbox{ref position, ref size, ..} => Some(new_rect(position, size)),
+    }
+}
+
+fn get_widget_position(widget: &Widget) -> (i32, i32) {
+    match *widget {
+        Widget::Form {ref position, ..} => (position.x, position.y),
+        Widget::Label{ref position, ..} => (position.x, position.y),
+        Widget::Button{ref position, ..} => (position.x, position.y),
+        Widget::Textbox{ref position, ..} => (position.x, position.y),
     }
 }
 
@@ -124,6 +160,32 @@ fn inside_rect(rect: Rect, x: i32, y: i32) -> bool {
     else {
         false
     }
+}
+
+fn render_form<'a>(rect: FloatRect) -> RenderJob<'a> {
+    let vertex1 = Vertex { position: [rect.x1, rect.y1] };
+    let vertex2 = Vertex { position: [rect.x2, rect.y1] };
+    let vertex3 = Vertex { position: [rect.x1, rect.y2] };             
+    let vertex4 = Vertex { position: [rect.x2, rect.y2] };
+
+    let shape = vec![vertex1, vertex2, vertex3, vertex2, vertex3, vertex4];
+
+    let index_buffer = glium::index::NoIndices(glium::index::PrimitiveType::TrianglesList);
+
+    RenderJob::Shape{vertices: shape, indices: index_buffer}
+}
+
+fn render_button_background<'a>(rect: FloatRect) -> RenderJob<'a> {
+    let vertex1 = Vertex { position: [rect.x1, rect.y1] };
+    let vertex2 = Vertex { position: [rect.x2, rect.y1] };
+    let vertex3 = Vertex { position: [rect.x1, rect.y2] };             
+    let vertex4 = Vertex { position: [rect.x2, rect.y2] };
+
+    let shape = vec![vertex1, vertex2, vertex3, vertex2, vertex3, vertex4];
+
+    let index_buffer = glium::index::NoIndices(glium::index::PrimitiveType::TrianglesList);
+
+    RenderJob::Shape{vertices: shape, indices: index_buffer}
 }
 
 pub struct UI<'a> {
@@ -240,71 +302,72 @@ impl<'a> UI<'a> {
                 println!("Widget is sibling last_parent={}, last_rect={}.", last_parent, last_rect);
             }
 
-            let mut rect = get_widget_rect(&widget.1);
-                   
-            match rect {
+            let rect = get_widget_rect(&widget.1);
+            
+            let mut final_rect = match rect {
                 Some(mut rect) => {
                     let parent_rect = last_rect;
                     
-                    rect.x+= parent_rect.x;
-                    rect.y+= parent_rect.y;
+                    let final_x = rect.x + parent_rect.x;
+                    elt final_y = rect.y + parent_rect.y;
 
                     if rect.x + rect.w > parent_rect.w {
-                        rect.w = parent_rect.w - rect.x;
+                        final_w = parent_rect.w - final_x;
                     }
 
                     if rect.y + rect.h > parent_rect.h {
-                        rect.h = parent_rect.h - rect.y;
+                        final_h = parent_rect.h - final_y;
                     }
-
-                    let vertex1 = Vertex { position: [get_screen_x(rect.x, self.screen_rect.w),             
-                                                      get_screen_y(rect.y, self.screen_rect.h)] };
-                    let vertex2 = Vertex { position: [get_screen_x(rect.x + rect.w, self.screen_rect.w),    
-                                                      get_screen_y(rect.y, self.screen_rect.h)] };
-                    let vertex3 = Vertex { position: [get_screen_x(rect.x, self.screen_rect.w),             
-                                                      get_screen_y(rect.y + rect.h, self.screen_rect.h)] };
-                    let vertex4 = Vertex { position: [get_screen_x(rect.x  + rect.w, self.screen_rect.w),   
-                                                      get_screen_y(rect.y + rect.h, self.screen_rect.h)] };
-
-                    let shape = vec![vertex1, vertex2, vertex3, vertex2, vertex3, vertex4];
-
-                    //println!("{}, {}", vertex1.position[0], vertex1.position[1]);
-                    //println!("{}, {}", vertex2.position[0], vertex2.position[1]);
-                    //println!("{}, {}", vertex3.position[0], vertex3.position[1]);
-                    //println!("{}, {}", vertex4.position[0], vertex4.position[1]);
-
-                    let index_buffer = glium::index::NoIndices(glium::index::PrimitiveType::TrianglesList);
-
-                    let newJob = RenderJob::Shape {vertices: shape, indices: index_buffer};
-
-                    render_jobs.push( newJob );
-                    last_rect = rect;
+                    Rect {
+                        
+                    }
                 }
-                _ => {
-                    match widget.1 {
-                        Widget::Label{ref position, ref text} => {
-                            let parent_rect = last_rect;
-                            let rendered_text = glium_text::TextDisplay::new(
-                                self.text_system,
-                                &self.font,
-                                text.as_str());
-                            let text_width = rendered_text.get_width();
-                            let matrix:[[f32; 4]; 4] = cgmath::Matrix4::new(
-                                0.2 / text_width, 0.0, 0.0, 0.0,
-                                0.0, 0.2 * (800.0) / (600.0) / text_width, 0.0, 0.0,
-                                0.0, 0.0, 1.0, 0.0,
-                                get_screen_x(position.x + parent_rect.x, self.screen_rect.w), get_screen_y(position.y + parent_rect.y, self.screen_rect.h), 0.0, 1.0f32,
-                            ).into();
-                            let color = (1.0, 1.0, 1.0, 1.0);
-                            let new_job = RenderJob::Text {text: rendered_text, 
-                                                            matrix: matrix, 
-                                                            color: color};
-                            render_jobs.push(new_job);
+                None => {
+                    let parent_rect = last_rect;
+                    let (ix, iy) = get_widget_position(&widget.1);
+
+                    Rect {
+                        x: ix + parent_rect.x, 
+                        y: iy + parent_rect.y, 
+                        w: parent_rect.w - ix, 
+                        h: parent_rect.h - iy 
                         }
-                        _ => ()
-                    }
                 }
             }
+
+            let screen_rect = to_screen_rect(final_rect, self.screen_width, self.screen_height);
+
+            match widget.1 {
+                Widget::Form{..} => {
+                    render_jobs.push(render_form(screen_rect));
+                }
+                Widget::Label{ref position, ref text} => {
+                    let parent_rect = last_rect;
+                    let rendered_text = glium_text::TextDisplay::new(
+                        self.text_system,
+                        &self.font,
+                        text.as_str());
+                    let text_width = rendered_text.get_width();
+                    let matrix:[[f32; 4]; 4] = cgmath::Matrix4::new(
+                        0.2 / text_width, 0.0, 0.0, 0.0,
+                        0.0, 0.2 * (800.0) / (600.0) / text_width, 0.0, 0.0,
+                        0.0, 0.0, 1.0, 0.0,
+                        get_screen_x(position.x + parent_rect.x, self.screen_rect.w), get_screen_y(position.y + parent_rect.y, self.screen_rect.h), 0.0, 1.0f32,
+                    ).into();
+                    let color = (1.0, 1.0, 1.0, 1.0);
+                    let new_job = RenderJob::Text {text: rendered_text, 
+                                                    matrix: matrix, 
+                                                    color: color};
+                    render_jobs.push(new_job);
+                }
+                Widget::Button{ref text, ..} => {
+                    render_jobs.push(render_button_background(screen_rect));
+                }
+                _ => ()
+            }
+
+            last_rect = rect;
+
             index+= 1;
         }
         render_jobs
@@ -327,8 +390,9 @@ mod tests {
         let mut ui = UI::new(800, 600, &display, &text_system);
         let main_form = ui.add_widget(-1, new_form(50, 50, 400, 300));
         let main_label = ui.add_widget(main_form, new_label(10, 10, "Hello."));
+        let main_button = ui.add_widget(main_form, new_button(10, 40, 100, 40, "OK."));
         let second_form = ui.add_widget(-1, new_form(100, 100, 200, 200));
 
-        assert!(ui.render().len() == 3);
+        assert!(ui.render().len() == 4);
     }
 }
