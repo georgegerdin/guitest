@@ -2,8 +2,9 @@
 #![allow(unused_variables)]
 extern crate std;
 extern crate glium;
-extern crate glium_text;
 extern crate cgmath;
+
+use text;
 
 #[derive(Copy, Clone)]
 pub struct Vertex {
@@ -49,26 +50,30 @@ pub enum Widget {
                 size: Size,
                 },
     Label {     position: Position,
-                text: String
+                text: String,
+                rendered_text: i32,
                 },
     Button {    position: Position,
                 size: Size,
                 pressed: bool,
                 text: String,
+                rendered_text: i32,
                 },
     Textbox {   position: Position,
                 size: Size,
-                text: String
+                text: String,
                 },
 }
 
-pub enum RenderJob<'a> {
+pub enum RenderJob {
     Shape { vertices: Vec<Vertex>, 
             indices: glium::index::NoIndices,
+            color: (f32, f32, f32, f32),
             },
-    Text {  text:   glium_text::TextDisplay<&'a glium_text::FontTexture>, 
+    Text {  text:   i32, 
             matrix: [[f32; 4]; 4], 
-            color: (f32, f32, f32, f32) },
+            color: (f32, f32, f32, f32) 
+            },
 }
 
 pub enum WidgetEvent {
@@ -86,6 +91,7 @@ pub fn new_label(ix: i32, iy: i32, itext: &str) -> Widget {
     Widget::Label {
         position: Position {x: ix, y: iy},
         text: itext.to_string(),
+        rendered_text: -1,
     }
 }
 
@@ -95,6 +101,7 @@ pub fn new_button(ix: i32, iy: i32, iw: i32, ih: i32, itext: &str) -> Widget {
         size: Size {w: iw, h: ih},
         pressed: false,
         text: itext.to_string(),
+        rendered_text: -1,
     }
 }
 
@@ -162,7 +169,7 @@ fn inside_rect(rect: Rect, x: i32, y: i32) -> bool {
     }
 }
 
-fn render_form<'a>(rect: FloatRect) -> RenderJob<'a> {
+fn render_form(rect: FloatRect) -> RenderJob {
     let vertex1 = Vertex { position: [rect.x1, rect.y1] };
     let vertex2 = Vertex { position: [rect.x2, rect.y1] };
     let vertex3 = Vertex { position: [rect.x1, rect.y2] };             
@@ -172,10 +179,10 @@ fn render_form<'a>(rect: FloatRect) -> RenderJob<'a> {
 
     let index_buffer = glium::index::NoIndices(glium::index::PrimitiveType::TrianglesList);
 
-    RenderJob::Shape{vertices: shape, indices: index_buffer}
+    RenderJob::Shape{vertices: shape, indices: index_buffer, color: (0.0f32, 1.0f32, 1.0f32, 1.0f32) }
 }
 
-fn render_button_background<'a>(rect: FloatRect) -> RenderJob<'a> {
+fn render_button_background(rect: FloatRect) -> RenderJob {
     let vertex1 = Vertex { position: [rect.x1, rect.y1] };
     let vertex2 = Vertex { position: [rect.x2, rect.y1] };
     let vertex3 = Vertex { position: [rect.x1, rect.y2] };             
@@ -185,20 +192,20 @@ fn render_button_background<'a>(rect: FloatRect) -> RenderJob<'a> {
 
     let index_buffer = glium::index::NoIndices(glium::index::PrimitiveType::TrianglesList);
 
-    RenderJob::Shape{vertices: shape, indices: index_buffer}
+    RenderJob::Shape{vertices: shape, indices: index_buffer, color: (1.0f32, 0.0f32, 1.0f32, 1.0f32) }
 }
 
 pub struct UI<'a> {
     widgets: Vec<(i32, Widget)>,
     events: Vec<WidgetEvent>,
     screen_rect: Rect,
-    font: glium_text::FontTexture,
-    text_system: &'a glium_text::TextSystem,
+    font: i32,
+    text_system: &'a text::TextSystem,
 }
 use glium::backend::glutin_backend::GlutinFacade;
 impl<'a> UI<'a> {
-    pub fn new<'b> (screen_width: i32, screen_height: i32, display: &'b GlutinFacade, text_system: &'a glium_text::TextSystem) -> UI<'a> {
-        let font_texture = glium_text::FontTexture::new(display, &include_bytes!("font.ttf")[..], 70).unwrap();
+    pub fn new<'b> (screen_width: i32, screen_height: i32, display: &'b GlutinFacade, text_system: &'a text::TextSystem) -> UI<'a> {
+        let font_texture = text_system.create_font("Standard", &include_bytes!("font.ttf")[..]).unwrap();
 
         UI {
             widgets: Vec::new(),
@@ -206,13 +213,29 @@ impl<'a> UI<'a> {
             screen_rect: Rect {x: 0, y: 0, w: screen_width, h: screen_height},
             font: font_texture,
             text_system: text_system,
+            rendered_texts: Vec::new(),
         }
     }
     pub fn clear_events(&mut self) {
         self.events.clear();
     }
 
-    pub fn add_widget(&mut self, parent: i32, w: Widget) -> i32 {
+    pub fn add_text_to_render(&mut self, text: &String) -> i32 {
+        let index = self.rendered_texts.len();
+        let maxi32 = std::i32::MAX as usize;
+
+        if index >= maxi32 {
+            panic!("Too many text renderings");
+        }
+
+        let safe_index = index as i32;
+
+        self.rendered_texts.push(std::rc::Rc::new(text::TextDisplay::new(self.text_system, self.font.clone(), text.as_str())));
+        
+        safe_index
+    }
+
+    pub fn add_widget(&mut self, parent: i32, mut w: Widget) -> i32 {
         let index = self.widgets.len();
         let maxi32 = std::i32::MAX as usize;
 
@@ -221,6 +244,16 @@ impl<'a> UI<'a> {
         }
 
         let safe_index = index as i32;
+
+        match w {
+            Widget::Label{ref position, ref text, ref mut rendered_text} => {
+                *rendered_text = self.add_text_to_render(text);
+            }
+            Widget::Button{ref text, ref mut rendered_text, ..} => {
+                *rendered_text = self.add_text_to_render(text);
+            }
+            _ => ()
+        }
 
         self.widgets.push((parent, w));
 
@@ -276,40 +309,41 @@ impl<'a> UI<'a> {
 
         let mut index = 0; 
         for widget in &self.widgets {
-            println!("For for widget in index={}, last_parent={}, last_rect={}",
-                index, last_parent, last_rect );
+            //println!("For for widget in index={}, last_parent={}, last_rect={}", index, last_parent, last_rect );
 
             //If the new widget is a child widget of the last widget
-            if(last_parent < widget.0) {
+            if last_parent < widget.0  {
                 rects.push( (widget.0, last_rect) );
                 last_parent = widget.0;
-                println!("This is a child widget last_parent={}, last_rect={}", last_parent, last_rect);
+            //    println!("This is a child widget last_parent={}, last_rect={}", last_parent, last_rect);
             }
             //If the new widget is higher in the tree
-            else if(last_parent > widget.0) {
-                while(last_parent != widget.0) {
+            else if last_parent > widget.0  {
+                while last_parent != widget.0  {
                     println!("last_parent {}, widget.0 {}", last_parent, widget.0);
                     rects.pop();
                     let (lp, lr) = rects.last().unwrap().clone();
                     last_parent = lp;
                     last_rect = lr;
                 }
-                println!("Widget higher in the tree last_parent={}, last_rect={}", last_parent, last_rect);
+            //    println!("Widget higher in the tree last_parent={}, last_rect={}", last_parent, last_rect);
             }
             //The widget has the same parent as the previous one
             else {
                 let (last_parent, last_rect) = rects.last().unwrap().clone();
-                println!("Widget is sibling last_parent={}, last_rect={}.", last_parent, last_rect);
+            //    println!("Widget is sibling last_parent={}, last_rect={}.", last_parent, last_rect);
             }
 
             let rect = get_widget_rect(&widget.1);
             
-            let mut final_rect = match rect {
+            let final_rect = match rect {
                 Some(mut rect) => {
                     let parent_rect = last_rect;
                     
                     let final_x = rect.x + parent_rect.x;
-                    elt final_y = rect.y + parent_rect.y;
+                    let final_y = rect.y + parent_rect.y;
+                    let mut final_w = rect.w;
+                    let mut final_h = rect.h;
 
                     if rect.x + rect.w > parent_rect.w {
                         final_w = parent_rect.w - final_x;
@@ -319,7 +353,10 @@ impl<'a> UI<'a> {
                         final_h = parent_rect.h - final_y;
                     }
                     Rect {
-                        
+                        x: final_x,
+                        y: final_y,
+                        w: final_w,
+                        h: final_h
                     }
                 }
                 None => {
@@ -331,46 +368,54 @@ impl<'a> UI<'a> {
                         y: iy + parent_rect.y, 
                         w: parent_rect.w - ix, 
                         h: parent_rect.h - iy 
-                        }
+                    }
                 }
-            }
+            };
 
-            let screen_rect = to_screen_rect(final_rect, self.screen_width, self.screen_height);
+            let screen_rect = to_screen_rect(final_rect, 800, 600);
 
             match widget.1 {
                 Widget::Form{..} => {
                     render_jobs.push(render_form(screen_rect));
                 }
-                Widget::Label{ref position, ref text} => {
-                    let parent_rect = last_rect;
-                    let rendered_text = glium_text::TextDisplay::new(
-                        self.text_system,
-                        &self.font,
-                        text.as_str());
-                    let text_width = rendered_text.get_width();
-                    let matrix:[[f32; 4]; 4] = cgmath::Matrix4::new(
-                        0.2 / text_width, 0.0, 0.0, 0.0,
-                        0.0, 0.2 * (800.0) / (600.0) / text_width, 0.0, 0.0,
-                        0.0, 0.0, 1.0, 0.0,
-                        get_screen_x(position.x + parent_rect.x, self.screen_rect.w), get_screen_y(position.y + parent_rect.y, self.screen_rect.h), 0.0, 1.0f32,
-                    ).into();
-                    let color = (1.0, 1.0, 1.0, 1.0);
-                    let new_job = RenderJob::Text {text: rendered_text, 
-                                                    matrix: matrix, 
-                                                    color: color};
-                    render_jobs.push(new_job);
+                Widget::Label{ref position, ref text, rendered_text} => {
+                    
+                    render_jobs.push(self.render_text(final_rect.x, final_rect.y, rendered_text));
                 }
-                Widget::Button{ref text, ..} => {
+                Widget::Button{ref text, rendered_text, ..} => {
                     render_jobs.push(render_button_background(screen_rect));
+                    render_jobs.push(self.render_text(final_rect.x, final_rect.y, rendered_text));
                 }
                 _ => ()
             }
 
-            last_rect = rect;
+            last_rect = final_rect;
 
             index+= 1;
         }
         render_jobs
+    }
+
+    pub fn render_text(&self, x: i32, y: i32, rendered_text: i32) -> RenderJob {
+        if rendered_text < 0 {
+            panic!("Text index can't be negative");
+        }
+
+        let rendered_text = self.rendered_texts[rendered_text as usize].clone();
+        let text_width = rendered_text.get_width();
+        //println!("Text width: {}", text_width);
+        let matrix:[[f32; 4]; 4] = cgmath::Matrix4::new(
+            2.0 / text_width, 0.0, 0.0, 0.0,
+            0.0, 2.0 * (800.0) / (600.0) / text_width, 0.0, 0.0,
+            0.0, 0.0, 1.0, 0.0,
+            get_screen_x(x, self.screen_rect.w), get_screen_y(y, self.screen_rect.h), 0.0, 1.0f32,
+        ).into();
+        let color = (1.0, 1.0, 1.0, 1.0);
+        RenderJob::Text {
+            text: rendered_text, 
+            matrix: matrix, 
+            color: color
+            }
     }
 }
 
@@ -385,7 +430,7 @@ mod tests {
             .with_dimensions(800, 600)
             .build_glium()
             .unwrap();
-        let text_system = glium_text::TextSystem::new(&display);
+        let text_system = text::TextSystem::new(&display);
 
         let mut ui = UI::new(800, 600, &display, &text_system);
         let main_form = ui.add_widget(-1, new_form(50, 50, 400, 300));

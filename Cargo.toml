@@ -6,5 +6,6 @@ authors = ["george"]
 [dependencies]
 glium="*"
 glutin="*"
-glium_text="*"
 cgmath="*"
+freetype-sys="0.4"
+libc="0.2"
