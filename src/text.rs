@@ -50,7 +50,7 @@ use std::rc::Rc;
 
 /// Texture which contains the characters of the font.
 struct FontTexture {
-    String name,
+    name: String,
     texture: glium::texture::Texture2d,
     character_infos: Vec<(char, CharacterInfos)>,
 }
@@ -315,7 +315,7 @@ impl TextSystem {
             panic!("Too many fonts.");
         }
 
-        let new_display(self.context.clone(), font, text);
+        let new_display: TextDisplay::new(self.context.clone(), font, text);
         text_displays.push(new_display);
 
         index as i32
@@ -324,9 +324,9 @@ impl TextSystem {
 
 impl TextDisplay  {
     /// Builds a new text display that allows you to draw text.
-    pub fn new(system: &TextSystem, texture: usize, text: &str) -> TextDisplay {
+    pub fn new(icontext: Rc<Context>, texture: usize, text: &str) -> TextDisplay {
         let mut text_display = TextDisplay {
-            context: system.context.clone(),
+            context: icontext,
             texture: texture,
             vertex_buffer: None,
             index_buffer: None,
