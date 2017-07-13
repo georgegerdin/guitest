@@ -35,9 +35,9 @@ glium_text::draw(&text, &system, &mut display.draw(), matrix, (1.0, 1.0, 0.0, 1.
 
 extern crate libc;
 extern crate freetype_sys as freetype;
-extern crate std;
-extern crate glium;
 #[macro_use]
+use glium;
+use std;
 
 use glium::DrawParameters;
 use glium::backend::Context;
@@ -49,8 +49,7 @@ use std::ops::Deref;
 use std::rc::Rc;
 
 /// Texture which contains the characters of the font.
-struct FontTexture {
-    name: String,
+pub struct FontTexture {
     texture: glium::texture::Texture2d,
     character_infos: Vec<(char, CharacterInfos)>,
 }
@@ -58,19 +57,15 @@ struct FontTexture {
 /// Object that contains the elements shared by all `TextDisplay` objects.
 ///
 /// Required to create a `TextDisplay`.
-use glium::backend::glutin_backend::GlutinFacade;
 pub struct TextSystem {
     context: Rc<Context>,
-    display: Rc<GlutinFacade>,
     program: glium::Program,
-    fonts: Vec<FontTexture>,
-    text_displays: Vec<TextDisplay>
 }
 
 /// Object that will allow you to draw a text.
-struct TextDisplay {
+pub struct TextDisplay<F> where F: Deref<Target=FontTexture> {
     context: Rc<Context>,
-    texture: usize,
+    texture: F,
     vertex_buffer: Option<glium::VertexBuffer<VertexFormat>>,
     index_buffer: Option<glium::IndexBuffer<u16>>,
     total_text_width: f32,
@@ -128,7 +123,7 @@ implement_vertex!(VertexFormat, position, tex_coords);
 
 impl FontTexture {
     /// Creates a new texture representing a font stored in a `FontTexture`.
-    pub fn new<R, F>(facade: &F, font: R, font_size: u32, name: String)
+    pub fn new<R, F>(facade: &F, font: R, font_size: u32)
                      -> Result<FontTexture, ()> where R: Read, F: Facade
     {
         // building the freetype library
@@ -291,42 +286,17 @@ impl TextSystem {
                         }
                     "
                 },
-            fonts: Vec::new(),
-            text_displays: Vec::new(),
+
             ).unwrap()
         }
     }
-
-    pub fn create_font<R>(&self, name: String, font: R) where R: Read -> i32 {
-        let index = fonts.size();
-        if index > std::i32::MAX as usize {
-            panic!("Too many fonts.");
-        }
-        
-        let new_font = FontTexture::new(self.display, font, 70, name);
-        fonts.push(new_font);
-
-        index as i32
-    }
-
-    pub fn create_display(&self, text: &str, font: i32) -> i32 {
-        let index = text_displays.size();
-        if index > std::i32::MAX as usize {
-            panic!("Too many fonts.");
-        }
-
-        let new_display: TextDisplay::new(self.context.clone(), font, text);
-        text_displays.push(new_display);
-
-        index as i32
-    }
 }
 
-impl TextDisplay  {
+impl<F> TextDisplay<F> where F: Deref<Target=FontTexture> {
     /// Builds a new text display that allows you to draw text.
-    pub fn new(icontext: Rc<Context>, texture: usize, text: &str) -> TextDisplay {
+    pub fn new(system: &TextSystem, texture: F, text: &str) -> TextDisplay<F> {
         let mut text_display = TextDisplay {
-            context: icontext,
+            context: system.context.clone(),
             texture: texture,
             vertex_buffer: None,
             index_buffer: None,
