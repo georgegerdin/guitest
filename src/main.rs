@@ -59,13 +59,22 @@ fn main() {
         for ev in display.poll_events() {
             match ev {
                 Event::Closed => running = false,
-                Event::MouseMoved(x, y) => {mouse_x = x; mouse_y = y;},
+                Event::MouseMoved(x, y) => {
+                    ui.mousemove(mouse_x, mouse_y, x, y);
+                    mouse_x = x; mouse_y = y;
+                    },
                 Event::MouseInput(ElementState::Pressed, button) =>  {
                     match button {
-                        MouseButton::Left => ui.mousedown(mouse_x, mouse_y),
+                        MouseButton::Left => ui.mousedown(),
                         _ => ()    
                     }
                 },
+                Event::MouseInput(ElementState::Released, button) => {
+                    match button {
+                        MouseButton::Left => ui.mouseup(),
+                        _ => ()
+                    }
+                }
                 _ => ()
             }
         }
@@ -89,13 +98,13 @@ fn main() {
 
             let ui = &mut conrod_ui.set_widgets();
 
-            let mpostext = format!("Mouse position: ({}, {})", mouse_x, mouse_y);
+            /*let mpostext = format!("Form position: ({}, {})", x, y);
 
-            widget::Text::new(&mpostext)
-                .top_left_of(ui.window)
-                .color(conrod::color::WHITE)
-                .set(ids.text, ui);
-
+                        widget::Text::new(&mpostext)
+                            .top_left_of(ui.window)
+                            .color(conrod::color::WHITE)
+                            .set(ids.text, ui);
+*/
             for render_job in &render_jobs {
                 let i: conrod::widget::id::Id;
 
@@ -110,28 +119,35 @@ fn main() {
 
                 match *render_job {
                     gui::RenderJob::Nul => (),
-                    gui::RenderJob::Form { index, x, y, w, h, ref title} => {
+                    gui::RenderJob::Form { index, focus, x, y, w, h, ref title} => {
                         find_widget!(widgets_collection, index, i);
 
-                        widget::Canvas::new()
+                        let mut bgcolor = conrod::color::LIGHT_CHARCOAL;
+                        if focus {bgcolor = conrod::color::GRAY;}
+    
+                        widget::Rectangle::outline([w as f64, h as f64])
                             .x_y(x as f64 - 400.0 + (w as f64 / 2.0), 300.0 - y as f64 - (h as f64/ 2.0))
-                            .w_h(w as f64, h as f64)
-                            .color(conrod::color::BLUE)
-                            .title_bar(&title)
+                            .color(bgcolor)
                             .set(i, ui);
 
                     }
-                    gui::RenderJob::Button {index, pressed, x, y, w, h, ref text } => {
+                    gui::RenderJob::Button {index, pressed, focus, x, y, w, h, ref text } => {
                         find_widget!(widgets_collection, index, i);
 
-                        let label_color;
+                        let mut label_color = conrod::color::CHARCOAL;;
+                        let mut bgcolor = conrod::color::DARK_BLUE;
                         if pressed {label_color = conrod::color::LIGHT_CHARCOAL; }
-                        else {label_color = conrod::color::CHARCOAL; }
+                        else {
+                            if focus {bgcolor = conrod::color::GRAY;}
+                            else {bgcolor = conrod::color::LIGHT_CHARCOAL;}
+                        }    
+                    
 
                         widget::Toggle::new(!pressed)
                             .top_left_of(ui.window)
                             .x_y(x as f64 - 400.0 + (w as f64 / 2.0), 300.0 - y as f64 - (h as f64/ 2.0))
                             .w_h(w as f64, h as f64)
+                            .color(bgcolor)
                             .label(&text)
                             .label_color(label_color)
                             .set(i, ui);
