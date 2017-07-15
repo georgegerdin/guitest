@@ -1,63 +1,56 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
-
 #[macro_use]
-extern crate glium;
+extern crate conrod;
+
+use conrod::{widget, Colorable, Positionable, Sizeable, Labelable, Widget};
+use conrod::backend::glium::glium;
+use conrod::backend::glium::glium::{DisplayBuild, Surface};
+
 extern crate cgmath;
 
 mod gui;
-mod text;
 use gui::UI;
-use gui::Vertex;
+use std::collections::HashMap;
 
 fn main() {
-    use glium::{DisplayBuild, Surface};
+    const WIDTH: u32 = 800;
+    const HEIGHT: u32 = 600;
+
     let display = glium::glutin::WindowBuilder::new()
-        .with_dimensions(800, 600)
+        .with_dimensions(WIDTH, HEIGHT)
         .build_glium()
         .unwrap();
-     let text_system = text::TextSystem::new(&display);
+     
+    
+    let mut ui = UI::new(800, 600);
+    let mut conrod_ui = conrod::UiBuilder::new([WIDTH as f64, HEIGHT as f64]).build();
 
+    // Add a `Font` to the `Ui`'s `font::Map` from file.
+    const FONT_PATH: &'static str =
+        concat!(env!("CARGO_MANIFEST_DIR"), "/assets/fonts/Dogma/Dogma.ttf");
+    conrod_ui.fonts.insert_from_file(FONT_PATH).unwrap();
+    let mut renderer = conrod::backend::glium::Renderer::new(&display).unwrap();
+    let image_map = conrod::image::Map::<glium::texture::Texture2d>::new();
 
-    let vertex_shader_src = r#"
-        #version 140
-
-        in vec2 position;
-        
-        void main() {
-           gl_Position = vec4(position, 0.0, 1.0);
-        }
-    "#;
-
-    let fragment_shader_src = r#"
-        #version 140
-
-        uniform vec4 my_color = vec4(1.0, 0.0, 0.0, 1.0);
-        out vec4 color;
-
-        void main() {
-           color = my_color;   // we build a vec4 from a vec2 and two floats
-        }
-    "#;
-
-    let program = glium::Program::from_source(&display, vertex_shader_src, fragment_shader_src, None).unwrap();
-	
-	//Create user interface
-    let mut ui = UI::new(800, 600, &display, &text_system);
-    let main_form = ui.add_widget(-1, gui::new_form(50, 50, 400, 300));
+    let main_form = ui.add_widget(-1, gui::new_form(50, 50, 400, 300, "Main Menu"));
     let main_label = ui.add_widget(main_form, gui::new_label(10, 40, "Hello."));
     let main_button = ui.add_widget(main_form, gui::new_button(10, 40, 100, 40, "OK."));
+    let a_label = ui.add_widget(main_form, gui::new_label(20, 100, "Hello again."));
 
 	let mut running = true;
     let mut mouse_x = 0;
     let mut mouse_y = 0;
-	
-    let font = text::FontTexture::new(&display, &include_bytes!("font.ttf")[..], 70).unwrap();
-    let text = text::TextDisplay::new(&text_system, &font, "Hello world!");
-    let text_width = text.get_width();
-    println!("Text width: {:?}", text_width);
 
+    let mut widgets_collection: 
+        HashMap<usize, conrod::widget::id::Id> = HashMap::new();
+    	
     use glium::glutin::{Event, ElementState, MouseButton};
+
+    // Generate the widget identifiers.
+    widget_ids!(struct Ids { text });
+    let ids = Ids::new(conrod_ui.widget_id_generator());
+
     while running {
         ui.clear_events();
 
@@ -77,37 +70,93 @@ fn main() {
             }
         }
 
-        let matrix:[[f32; 4]; 4] = cgmath::Matrix4::new(
-            2.0 / text_width, 0.0, 0.0, 0.0,
-            0.0, 2.0 * (800.0) / (600.0) / text_width, 0.0, 0.0,
-            0.0, 0.0, 1.0, 0.0,
-            -1.0, -1.0, 0.0, 1.0f32,
-        ).into();
-
-        
-
         let render_jobs = ui.render();
 
-        target.clear_color(0.0, 0.0, 1.0, 1.0);
-        for render_job in &render_jobs {
-            match *render_job {
-                gui::RenderJob::Shape {ref vertices, ref indices, ref color } => {
-                    let uniforms = uniform! {
-                        my_color: [color.0, color.1, color.2, color.3],
+        target.clear_color(0.0, 0.0, 0.0, 1.0);
+        
+        {
+            {
+                let mut widget_generator = conrod_ui.widget_id_generator();
+                for i in 0 .. ui.num_widgets() {
+                    let id  = match widgets_collection.get(&i) {
+                        Some(_) => continue,
+                        None => widget_generator.next()
                     };
-                    let vertex_buffer = glium::VertexBuffer::new(&display, &vertices).unwrap();       
-                    target.draw(&vertex_buffer, indices, &program, &uniforms,
-                        &Default::default()).unwrap();
-                },
-                gui::RenderJob::Text {ref text, ref matrix, ref color} => {
-                    text::draw(&text, &text_system, &mut target, *matrix, *color);
+
+                    widgets_collection.insert(i, id);    
+                }
+            }
+
+            let ui = &mut conrod_ui.set_widgets();
+
+            let mpostext = format!("Mouse position: ({}, {})", mouse_x, mouse_y);
+
+            widget::Text::new(&mpostext)
+                .top_left_of(ui.window)
+                .color(conrod::color::WHITE)
+                .set(ids.text, ui);
+
+            for render_job in &render_jobs {
+                let i: conrod::widget::id::Id;
+
+                macro_rules! find_widget {
+                    ($collection:ident, $index:ident, $dest:ident) => {
+                        match $collection.get(&$index) {
+                            Some(k) => $dest = *k,
+                            None => unreachable!()
+                        }
+                    }
+                }
+
+                match *render_job {
+                    gui::RenderJob::Nul => (),
+                    gui::RenderJob::Form { index, x, y, w, h, ref title} => {
+                        find_widget!(widgets_collection, index, i);
+
+                        widget::Canvas::new()
+                            .x_y(x as f64 - 400.0 + (w as f64 / 2.0), 300.0 - y as f64 - (h as f64/ 2.0))
+                            .w_h(w as f64, h as f64)
+                            .color(conrod::color::BLUE)
+                            .title_bar(&title)
+                            .set(i, ui);
+
+                    }
+                    gui::RenderJob::Button {index, pressed, x, y, w, h, ref text } => {
+                        find_widget!(widgets_collection, index, i);
+
+                        let label_color;
+                        if pressed {label_color = conrod::color::LIGHT_CHARCOAL; }
+                        else {label_color = conrod::color::CHARCOAL; }
+
+                        widget::Toggle::new(!pressed)
+                            .top_left_of(ui.window)
+                            .x_y(x as f64 - 400.0 + (w as f64 / 2.0), 300.0 - y as f64 - (h as f64/ 2.0))
+                            .w_h(w as f64, h as f64)
+                            .label(&text)
+                            .label_color(label_color)
+                            .set(i, ui);
+                    },
+                    gui::RenderJob::Label {index, x, y, ref text} => {
+                        find_widget!(widgets_collection, index, i);
+
+                        let fx = x as f64;
+                        let fy = y as f64;
+
+                        widget::Text::new(&text)
+                            .top_left_of(ui.window)
+                            .x_y(fx - 400.0, 300.0 - fy)
+                            .w_h(0.1, 0.1)
+                            .no_line_wrap()
+                            .font_size(18)
+                            .color(conrod::color::WHITE)
+                            .set(i, ui);    
+                    }
                 }
             }
         }
-
-        text::draw(&text, &text_system, &mut target, matrix, (1.0, 1.0, 0.0, 1.0));
-
-
+        
+        renderer.fill(&display, conrod_ui.draw(), &image_map);
+        renderer.draw(&display, &mut target, &image_map).unwrap();
         target.finish().unwrap();
 
         

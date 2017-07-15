@@ -4,8 +4,8 @@ version = "0.1.0"
 authors = ["george"]
 
 [dependencies]
-glium="*"
-glutin="*"
 cgmath="*"
 freetype-sys="0.4"
 libc="0.2"
+conrod = { version="*", features = ["winit", "glium"] }
+
