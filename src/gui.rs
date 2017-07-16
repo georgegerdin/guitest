@@ -54,7 +54,7 @@ pub enum Widget {
 pub enum RenderJob {
     Nul,
 
-    Form {  index:  usize,
+    Form {  index:  WidgetHandle,
             focus:  bool,
             x:      i32,
             y:      i32,
@@ -63,7 +63,7 @@ pub enum RenderJob {
             title:  String
     },
 
-    Button { index: usize,
+    Button { index: WidgetHandle,
              pressed: bool,
              focus: bool,
              x:     i32,
@@ -74,7 +74,7 @@ pub enum RenderJob {
     },
 
     Label { 
-            index:  usize, 
+            index:  WidgetHandle, 
             x:      i32,
             y:      i32,
             text:   String, 
@@ -165,7 +165,14 @@ fn inside_rect(rect: Rect, x: i32, y: i32) -> bool {
     }
 }
 
-fn render_form(index: usize, focus: bool, rect: Rect, title: &str) -> RenderJob {
+/***********************************************************************************
+ *      render_form
+ *      render_button
+ *      render_text
+ *    
+ *      Auxiliary functions to create RenderJobs
+ ***********************************************************************************/
+fn render_form(index: WidgetHandle, focus: bool, rect: Rect, title: &str) -> RenderJob {
     RenderJob::Form {   index: index,
                         focus: focus,
                         x: rect.x, 
@@ -176,7 +183,7 @@ fn render_form(index: usize, focus: bool, rect: Rect, title: &str) -> RenderJob 
     }
 }
 
-fn render_button(index: usize, pressed: bool, focus: bool, rect: Rect, text: &str) -> RenderJob {
+fn render_button(index: WidgetHandle, pressed: bool, focus: bool, rect: Rect, text: &str) -> RenderJob {
     RenderJob::Button{  index: index,
                         pressed: pressed,
                         focus: focus,
@@ -187,12 +194,24 @@ fn render_button(index: usize, pressed: bool, focus: bool, rect: Rect, text: &st
                         text: text.to_owned() }
 }
 
+pub fn render_text(index: WidgetHandle, x: i32, y: i32, text: &str) -> RenderJob {
+    RenderJob::Label {
+        index: index,
+        text: text.to_owned(), 
+        x: x, 
+        y: y
+    }
+}
+
+pub type WidgetHandle = i32;
+
 pub struct UI {
-    widgets: Vec<(i32, Widget)>,
-    mouse_focused_widgets: Vec<i32>,
+    widgets: Vec<(WidgetHandle, Widget)>,
+    widget_indices: Vec<usize>,
+    mouse_focused_widgets: Vec<WidgetHandle>,
     events: Vec<WidgetEvent>,
     screen_rect: Rect,
-    dragged_window: i32,
+    dragged_window: WidgetHandle,
 }
 
 impl UI {
@@ -200,6 +219,7 @@ impl UI {
         
         UI {
             widgets: Vec::new(),
+            widget_indices: Vec::new(),
             mouse_focused_widgets: Vec::new(),
             events: Vec::new(),
             screen_rect: Rect {x: 0, y: 0, w: screen_width, h: screen_height},
@@ -210,6 +230,19 @@ impl UI {
         self.events.clear();
     }
 
+    fn find_widget_index_by_handle(&self, handle: WidgetHandle) -> usize {
+        debug_assert!(handle >= 0);
+        return self.widget_indices[handle as usize];
+    }
+
+    fn find_widget_handle_by_index(&self, index: usize) -> WidgetHandle {
+        for (handle, i) in self.widget_indices.iter().enumerate() {
+            if *i == index {return handle as WidgetHandle;}
+        }
+
+        panic!("Widget handle not found");
+    }
+
 /***********************************************************************************
  *      UI::add_widget
  *      
@@ -217,16 +250,34 @@ impl UI {
  *      parent the widget will be a root window.
  *      Returns a handle to the created widget for manipulation.
  ***********************************************************************************/
-    pub fn add_widget(&mut self, parent: i32, w: Widget) -> i32 {
-        let index = self.widgets.len();
+    pub fn add_widget(&mut self, parent: WidgetHandle, w: Widget) -> WidgetHandle {
+        let index = self.widget_indices.len();
 
         if index >= std::i32::MAX as usize {
             panic!("Too many widgets");
         }
 
-        self.widgets.push((parent, w));
+        if parent != -1 {
+            //We want to put the widget after the parent
+            //in the vector to always keep the vector sorted
+            let parent_index = self.find_widget_index_by_handle(parent);
+            
+            //Fix the widgets index map because of insertion
+            //in the middle of the vector
+            for i in parent_index + 1 .. self.widgets.len() {
+                let tmp = self.find_widget_handle_by_index(i) as usize;
+                self.widget_indices[tmp] = self.widget_indices[tmp] + 1;
+            }
 
-        index as i32
+            self.widget_indices.push(parent_index + 1);
+            self.widgets.insert(parent_index + 1, (parent, w));
+        } else {
+            //This is a root window just append it last to the vector
+            self.widget_indices.push(self.widgets.len());
+            self.widgets.push((parent, w));
+        }
+
+        index as WidgetHandle
     }
 
 /***********************************************************************************
@@ -258,10 +309,10 @@ impl UI {
         let mut focused_widgets: Vec<i32> = Vec::new();
         let mut next_iteration = Iteration::Child;
 
-        let mut last_parent = -1;
+        let mut last_parent: WidgetHandle = -1;
         let mut last_rect = self.screen_rect.clone();
 
-        let mut rects: Vec<(i32, Rect)>;
+        let mut rects: Vec<(WidgetHandle, Rect)>;
         rects = Vec::new();
         rects.push( (last_parent, last_rect) );
 
@@ -340,7 +391,7 @@ impl UI {
             };
 
             if inside_rect(final_rect, mx, my) {
-                focused_widgets.push(index);
+                focused_widgets.push(self.find_widget_handle_by_index(index));
                 next_iteration = Iteration::Child; 
             }
             else {
@@ -357,7 +408,8 @@ impl UI {
             for w in &self.mouse_focused_widgets {
                 if iter.any(|x| *x == *w) { }
                 else {
-                    match self.widgets[*w as usize].1 {
+                    let i = self.find_widget_index_by_handle(*w);
+                    match self.widgets[i].1 {
                         Widget::Button{ref mut pressed, ..} => *pressed = false,
                         _ => ()
                     }
@@ -376,7 +428,8 @@ impl UI {
  ***********************************************************************************/
     pub fn mousedown(&mut self) {
         for w in self.mouse_focused_widgets.iter().rev() {
-            match self.widgets[*w as usize].1 {
+            let i = self.find_widget_index_by_handle(*w);
+            match self.widgets[i].1 {
                 Widget::Form{..} => { self.dragged_window = *w; }
                 Widget::Button{ref mut pressed, ..} => { *pressed = true; return; }
                 _ => ()
@@ -393,7 +446,8 @@ impl UI {
         self.dragged_window = -1;
 
         for w in self.mouse_focused_widgets.iter().rev() {
-            match self.widgets[*w as usize].1 {
+            let i = self.find_widget_index_by_handle(*w);
+            match self.widgets[i].1 {
                 Widget::Button{ref mut pressed, ..} => { *pressed = false; return; }
                 _ => ()
             }
@@ -410,7 +464,7 @@ impl UI {
         let mut render_jobs: Vec<RenderJob>;
         render_jobs = Vec::new();
 
-        let mut last_parent = -1;
+        let mut last_parent: WidgetHandle = -1;
         let mut last_rect = self.screen_rect.clone();
         last_rect.w = last_rect.w * 2;
         last_rect.h = last_rect.h * 2;
@@ -481,20 +535,22 @@ impl UI {
                 }
             };
 
+            let widget_handle = self.find_widget_handle_by_index(index);
+
             let mut focus = false;
             for i in &self.mouse_focused_widgets {
-                if *i == index {focus = true; break; }
+                if *i == widget_handle {focus = true; break; }
             }
 
             match widget.1 {
                 Widget::Form{ref title, ..} => {
-                    render_jobs.push(render_form(index as usize, focus, final_rect, &title));
+                    render_jobs.push(render_form(widget_handle, focus, final_rect, &title));
                 }
                 Widget::Label{ref text, ..} => {
-                    render_jobs.push(self.render_text(index as usize, final_rect.x, final_rect.y, text));
+                    render_jobs.push(render_text(widget_handle, final_rect.x, final_rect.y, text));
                 }
                 Widget::Button{ref text, pressed, ..} => {
-                    render_jobs.push(render_button(index as usize, pressed, focus, final_rect, text));
+                    render_jobs.push(render_button(widget_handle, pressed, focus, final_rect, text));
                 }
                 _ => ()
             }
@@ -504,22 +560,6 @@ impl UI {
         }
 
         render_jobs
-    }
-
-/***********************************************************************************
- *      UI::render_text
- *    
- *      Creates a text RenderJob from provided arguments
- ***********************************************************************************/
-
- 
-    pub fn render_text(&self, index: usize, x: i32, y: i32, text: &str) -> RenderJob {
-        RenderJob::Label {
-            index: index,
-            text: text.to_owned(), 
-            x: x, 
-            y: y
-        }
     }
 
 /***********************************************************************************
@@ -552,26 +592,26 @@ mod tests {
        
         let mut ui = UI::new(800, 600);
         let main_form = ui.add_widget(-1, new_form(50, 50, 400, 300, "Test menu"));
+        let second_form = ui.add_widget(-1, new_form(100, 100, 200, 200, "Second form"));
         let main_label = ui.add_widget(main_form, new_label(10, 10, "Hello."));
         let main_button = ui.add_widget(main_form, new_button(10, 40, 100, 40, "OK."));
-        let second_form = ui.add_widget(-1, new_form(100, 100, 200, 200, "Second form"));
 
         let jobs = ui.render();
         assert!(jobs.len() == 4);
 
         for job in jobs {
             match job {
-                RenderJob::Form { index, x, y, w, h, ref title} => {
+                RenderJob::Form { index, focus, x, y, w, h, ref title} => {
                     println!("{}", index);
-                    assert!(index == 0 || index == 3);
+                    assert!(index == main_form || index == second_form);
                     
-                    if index == 0 {
+                    if index == main_form {
                         assert_eq!(x, 50);
                         assert_eq!(y, 50);
                         assert_eq!(w, 400);
                         assert_eq!(h, 300);
                     }
-                    else if index == 3 {
+                    else if index == second_form {
                         assert_eq!(x, 100);
                         assert_eq!(y, 100);
                         assert_eq!(w, 200);
@@ -579,8 +619,8 @@ mod tests {
                     }
                     
                 }
-                RenderJob::Button {index, x, y, w, h, ref text} =>  {
-                    assert_eq!(index, 2);
+                RenderJob::Button {index, focus, pressed, x, y, w, h, ref text} =>  {
+                    assert_eq!(index, main_button);
 
                     assert_eq!(x, 60);
                     assert_eq!(y, 90);
@@ -592,6 +632,7 @@ mod tests {
             }
         }
 
-        ui.mousedown(80, 110);
+        ui.mousemove(0, 0, 80, 110);
+        ui.mousedown();
     }
 }

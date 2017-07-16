@@ -33,6 +33,10 @@ fn main() {
     let mut renderer = conrod::backend::glium::Renderer::new(&display).unwrap();
     let image_map = conrod::image::Map::<glium::texture::Texture2d>::new();
 
+    let a_button1 = ui.add_widget(-1, gui::new_button(350, 40, 200, 40, "Ok"));
+    let a_button2 = ui.add_widget(-1, gui::new_button(350, 100, 200, 40, "Ok"));
+    let a_button3 = ui.add_widget(-1, gui::new_button(350, 150, 200, 40, "Ok"));
+    let a_button4 = ui.add_widget(-1, gui::new_button(350, 200, 200, 40, "Ok"));
     let main_form = ui.add_widget(-1, gui::new_form(50, 50, 400, 300, "Main Menu"));
     let main_label = ui.add_widget(main_form, gui::new_label(10, 40, "Hello."));
     let main_button = ui.add_widget(main_form, gui::new_button(10, 40, 100, 40, "OK."));
@@ -43,7 +47,7 @@ fn main() {
     let mut mouse_y = 0;
 
     let mut widgets_collection: 
-        HashMap<usize, conrod::widget::id::Id> = HashMap::new();
+        HashMap<gui::WidgetHandle, conrod::widget::id::Id> = HashMap::new();
     	
     use glium::glutin::{Event, ElementState, MouseButton};
 
@@ -86,13 +90,14 @@ fn main() {
         {
             {
                 let mut widget_generator = conrod_ui.widget_id_generator();
-                for i in 0 .. ui.num_widgets() {
-                    let id  = match widgets_collection.get(&i) {
+                for i in 0 .. ui.num_widgets()  {
+                    let handle = i as gui::WidgetHandle;
+                    let id  = match widgets_collection.get(&handle) {
                         Some(_) => continue,
                         None => widget_generator.next()
                     };
 
-                    widgets_collection.insert(i, id);    
+                    widgets_collection.insert(handle, id);    
                 }
             }
 
