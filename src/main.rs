@@ -3,7 +3,7 @@
 #[macro_use]
 extern crate conrod;
 
-use conrod::{widget, Colorable, Positionable, Sizeable, Labelable, Widget};
+use conrod::{widget, Colorable, Positionable, Sizeable, Borderable, Labelable, Widget};
 use conrod::backend::glium::glium;
 use conrod::backend::glium::glium::{DisplayBuild, Surface};
 
@@ -41,6 +41,7 @@ fn main() {
     let main_label = ui.add_widget(main_form, gui::new_label(10, 40, "Hello."));
     let main_button = ui.add_widget(main_form, gui::new_button(10, 40, 100, 40, "OK."));
     let a_label = ui.add_widget(main_form, gui::new_label(20, 100, "Hello again."));
+    let another_form = ui.add_widget(-1, gui::new_form(300, 300, 300, 300,"Other form"));
 
 	let mut running = true;
     let mut mouse_x = 0;
@@ -49,12 +50,10 @@ fn main() {
     let mut widgets_collection: 
         HashMap<gui::WidgetHandle, conrod::widget::id::Id> = HashMap::new();
     	
+    let mut half_screen_w = WIDTH as f64 / 2.0;
+    let mut half_screen_h = HEIGHT as f64 / 2.0;
+
     use glium::glutin::{Event, ElementState, MouseButton};
-
-    // Generate the widget identifiers.
-    widget_ids!(struct Ids { text });
-    let ids = Ids::new(conrod_ui.widget_id_generator());
-
     while running {
         ui.clear_events();
 
@@ -103,13 +102,6 @@ fn main() {
 
             let ui = &mut conrod_ui.set_widgets();
 
-            /*let mpostext = format!("Form position: ({}, {})", x, y);
-
-                        widget::Text::new(&mpostext)
-                            .top_left_of(ui.window)
-                            .color(conrod::color::WHITE)
-                            .set(ids.text, ui);
-*/
             for render_job in &render_jobs {
                 let i: conrod::widget::id::Id;
 
@@ -127,12 +119,17 @@ fn main() {
                     gui::RenderJob::Form { index, focus, x, y, w, h, ref title} => {
                         find_widget!(widgets_collection, index, i);
 
-                        let mut bgcolor = conrod::color::LIGHT_CHARCOAL;
-                        if focus {bgcolor = conrod::color::GRAY;}
+                        let mut framecolor =  conrod::color::grayscale(0.575);
+                        if focus {framecolor = conrod::color::grayscale(0.650);}
     
-                        widget::Rectangle::outline([w as f64, h as f64])
-                            .x_y(x as f64 - 400.0 + (w as f64 / 2.0), 300.0 - y as f64 - (h as f64/ 2.0))
-                            .color(bgcolor)
+                        let x = x as f64 - half_screen_w + (w as f64 / 2.0);
+                        let y = half_screen_h - y as f64 - (h as f64/ 2.0);
+
+                        widget::Toggle::new(true)
+                            .x_y(x, y)
+                            .w_h(w as f64, h as f64)
+                            .color(framecolor)
+                            .border(3.0)
                             .set(i, ui);
 
                     }

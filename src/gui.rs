@@ -8,17 +8,19 @@ pub struct Vertex {
     position: [f32; 2],
 }
 
+#[derive(Clone)]
 pub struct Position {
     x: i32,
     y: i32,
 }
 
+#[derive(Clone)]
 pub struct Size {
     w: i32,
     h: i32,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 struct Rect {
     x: i32,
     y: i32,
@@ -26,13 +28,10 @@ struct Rect {
     h: i32,
 }
 
-impl std::fmt::Display for Rect {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "x: {}, y: {}, w: {}, h: {}", self. x, self.y, self.w, self.h)
-    }
-}
-
+#[derive(Clone)]
 pub enum Widget {
+    Empty,
+
     Form {      position: Position, 
                 size: Size,
                 title: String
@@ -86,6 +85,13 @@ pub enum WidgetEvent {
     ButtonClicked(i32),
 }
 
+pub enum Layout {
+    NoLayout,
+    Vertical,
+    Horizontal
+    
+}
+
 pub fn new_form(ix: i32, iy: i32, iw: i32, ih: i32, title: &str) -> Widget {
     Widget::Form {
         position: Position {x: ix, y: iy},
@@ -131,6 +137,7 @@ fn get_screen_y(position: i32, screen_height: i32) -> f32 {
 
 fn get_widget_rect(widget: &Widget) -> Option<Rect> {
     match *widget {
+        Widget::Empty => None,
         Widget::Form {ref position, ref size, ..} => Some(new_rect(position, size)),
         Widget::Label{..} => None,
         Widget::Button{ref position, ref size, ..} => Some(new_rect(position, size)),
@@ -140,6 +147,7 @@ fn get_widget_rect(widget: &Widget) -> Option<Rect> {
 
 fn get_widget_position(widget: &Widget) -> (i32, i32) {
     match *widget {
+        Widget::Empty => (0, 0),
         Widget::Form {ref position, ..} => (position.x, position.y),
         Widget::Label{ref position, ..} => (position.x, position.y),
         Widget::Button{ref position, ..} => (position.x, position.y),
@@ -204,9 +212,10 @@ pub fn render_text(index: WidgetHandle, x: i32, y: i32, text: &str) -> RenderJob
 }
 
 pub type WidgetHandle = i32;
+pub type Depth = u32;
 
 pub struct UI {
-    widgets: Vec<(WidgetHandle, Widget)>,
+    widgets: Vec<(Depth, Widget)>,
     widget_indices: Vec<usize>,
     mouse_focused_widgets: Vec<WidgetHandle>,
     events: Vec<WidgetEvent>,
@@ -251,9 +260,9 @@ impl UI {
  *      Returns a handle to the created widget for manipulation.
  ***********************************************************************************/
     pub fn add_widget(&mut self, parent: WidgetHandle, w: Widget) -> WidgetHandle {
-        let index = self.widget_indices.len();
+        let handle = self.widget_indices.len();
 
-        if index >= std::i32::MAX as usize {
+        if handle >= std::i32::MAX as usize {
             panic!("Too many widgets");
         }
 
@@ -269,15 +278,19 @@ impl UI {
                 self.widget_indices[tmp] = self.widget_indices[tmp] + 1;
             }
 
+            let parent_depth = self.widgets[parent_index].0;
+
             self.widget_indices.push(parent_index + 1);
-            self.widgets.insert(parent_index + 1, (parent, w));
+            self.widgets.insert(parent_index + 1, (parent_depth + 1, w)); //depth + 1 since this is a child window
+
         } else {
-            //This is a root window just append it last to the vector
-            self.widget_indices.push(self.widgets.len());
-            self.widgets.push((parent, w));
+            //This is a root window - just append it last to the vector
+            let index = self.widgets.len();
+            self.widget_indices.push(index);
+            self.widgets.push((0, w)); //Root windows have depth 0
         }
 
-        index as WidgetHandle
+        handle as WidgetHandle
     }
 
 /***********************************************************************************
@@ -288,7 +301,8 @@ impl UI {
  ***********************************************************************************/
     pub fn mousemove(&mut self, last_mx: i32, last_my: i32, mx: i32, my: i32) {
         if self.dragged_window >= 0 {
-            match self.widgets[self.dragged_window as usize].1 {
+            let index = self.find_widget_index_by_handle(self.dragged_window);
+            match self.widgets[index].1 {
                 Widget::Form{ref mut position, ..} => {
                     position.x+= mx - last_mx;
                     position.y+= my - last_my;
@@ -309,46 +323,37 @@ impl UI {
         let mut focused_widgets: Vec<i32> = Vec::new();
         let mut next_iteration = Iteration::Child;
 
-        let mut last_parent: WidgetHandle = -1;
         let mut last_rect = self.screen_rect.clone();
+        let mut last_depth = 0;
 
-        let mut rects: Vec<(WidgetHandle, Rect)>;
+        let mut rects: Vec<(Depth, Rect)>;
         rects = Vec::new();
-        rects.push( (last_parent, last_rect) );
+        rects.push( (last_depth, last_rect) );
 
         let mut index = 0; 
         'loop_widgets: for widget in &self.widgets {
             //If the new widget is a child widget of the last widget
-            if last_parent < widget.0  {
+            if last_depth < widget.0  {
                 if next_iteration == Iteration::Sibling { //Don't compare to child widgets
+                    index+= 1;
                     continue 'loop_widgets;               //If the mouse cursor wasn't within parent
                 }
 
-                rects.push( (widget.0, last_rect) );
-                last_parent = widget.0;
+                rects.push( (last_depth, last_rect) );
                 next_iteration == Iteration::Sibling;
             }
             //If the new widget is higher in the tree
-            else if last_parent > widget.0  {
-                while last_parent != widget.0  {
+            else if last_depth > widget.0  {
+                while last_depth != widget.0  { //pop the stack until we're at this widgets depth
                     rects.pop();
-                    let (lp, lr) = rects.last().unwrap().clone();
-                    last_parent = lp;
+                    let (ld, lr) = rects.last().unwrap().clone();
+                    last_depth = ld;
                     last_rect = lr;
                 }
-
-                next_iteration = Iteration::Sibling;
-
-                for e in &focused_widgets {
-                    if *e == widget.0 {
-                        continue 'loop_widgets;  //A sibling widget on top of this one has received mouse focus
-                    }
-                }
             }
-            //The widget has the same parent as the previous one
+            //The widget is a sibling of the previous one
             else {
-                let (lp, lr) = rects.last().unwrap().clone();
-                last_parent = lp; 
+                let (_, lr) = rects.last().unwrap().clone();
                 last_rect = lr;
             }
 
@@ -391,14 +396,24 @@ impl UI {
             };
 
             if inside_rect(final_rect, mx, my) {
-                focused_widgets.push(self.find_widget_handle_by_index(index));
-                next_iteration = Iteration::Child; 
+                match widget.1 {
+                    Widget::Label{..} => (), //Labels do never get mouse focus
+                    _ =>    {
+                        //If a sibling widget below this one has been tagged as focused widget it and
+                        //it's child widgets must be removed from the focused widgets list
+                        focused_widgets.retain(|&x| widget.0 > self.widgets[self.find_widget_index_by_handle(x)].0);
+
+                        focused_widgets.push(self.find_widget_handle_by_index(index));
+                        next_iteration = Iteration::Child;
+                    }
+                } 
             }
             else {
                 next_iteration = Iteration::Sibling;
             }
 
             last_rect = final_rect;
+            last_depth = widget.0;
             index+= 1;
         }
 
@@ -421,20 +436,84 @@ impl UI {
         self.mouse_focused_widgets = focused_widgets;
     }
 
+    pub fn move_widget_to_front(&mut self, index: usize) {
+        let s_len = self.widgets.len();
+        let mut last_child = s_len - 1;
+        let destination_depth = self.widgets[index].0;
+
+        //Count number of children in this widget
+        for (iterations, w) in self.widgets[index  + 1 .. s_len].iter().enumerate() {
+            if w.0 <= destination_depth {
+                last_child = index + iterations;
+                break;
+            }
+        }
+        
+        //Move widget including children to temporary vector
+        let mut temporary_container: Vec<(Depth, Widget)> = Vec::new();
+        let mut temporary_indices: Vec<WidgetHandle> = Vec::new();
+        temporary_container.resize(last_child - index + 1, (0, Widget::Empty));
+        temporary_indices.reserve(last_child - index + 1);
+        temporary_container.clone_from_slice(&self.widgets[index .. last_child + 1 ]);
+        for i in index .. last_child + 1 { temporary_indices.push(self.find_widget_handle_by_index(i)); }
+
+        //Count number of siblings including their children
+        let first_sibling = last_child + 1;
+        let mut num_siblings = s_len - first_sibling;
+        for (iterations, w) in self.widgets[first_sibling .. s_len].iter().enumerate() {
+            if w.0 < destination_depth {
+                num_siblings = iterations;
+                break;
+            }
+        }
+
+        //Move sibling widgets up
+        for i in 0 .. num_siblings {
+            self.widgets.swap(index + i, first_sibling + i);
+            let handle = self.find_widget_handle_by_index(first_sibling + i) as usize;
+            self.widget_indices[handle] = index + i;
+        }
+
+        //Return widgets to the widgets array
+        let len = temporary_container.len();
+        for i in 0 .. len {
+            std::mem::swap(&mut temporary_container[i], &mut self.widgets[index + num_siblings + i] );
+        } 
+
+        for (i, j) in temporary_indices.iter().enumerate() {
+            self.widget_indices[*j as usize] = index + num_siblings + i;
+        }
+    }
+
 /***********************************************************************************
  *      UI::mousedown
  *      
  *      Handles a mousedown event to the widgets in focus
  ***********************************************************************************/
     pub fn mousedown(&mut self) {
+        let mut to_front = Vec::new();
+
+        println!("{:?}", self.mouse_focused_widgets);
         for w in self.mouse_focused_widgets.iter().rev() {
             let i = self.find_widget_index_by_handle(*w);
+        
+            let mut block = false;
+        
             match self.widgets[i].1 {
-                Widget::Form{..} => { self.dragged_window = *w; }
-                Widget::Button{ref mut pressed, ..} => { *pressed = true; return; }
+                Widget::Form{..} => { self.dragged_window = *w; println!("{}", *w); block = true; }
+                Widget::Button{ref mut pressed, ..} => { *pressed = true; block = true; }
                 _ => ()
             }
+
+            to_front.push(i);
+
+            if block {break;}
         }
+
+        for i in to_front {
+            self.move_widget_to_front(i);
+        }
+
     }
 
 /***********************************************************************************
@@ -464,36 +543,33 @@ impl UI {
         let mut render_jobs: Vec<RenderJob>;
         render_jobs = Vec::new();
 
-        let mut last_parent: WidgetHandle = -1;
         let mut last_rect = self.screen_rect.clone();
+        let mut last_depth = 0;
         last_rect.w = last_rect.w * 2;
         last_rect.h = last_rect.h * 2;
 
-        let mut rects: Vec<(i32, Rect)>;
+        let mut rects: Vec<(Depth, Rect)>;
         rects = Vec::new();
-        rects.push( (last_parent, last_rect) );
+        rects.push( (last_depth, last_rect) );
 
         let mut index = 0; 
         for widget in &self.widgets {
             //If the new widget is a child widget of the last widget
-            if last_parent < widget.0  {
-                rects.push( (widget.0, last_rect) );
-                last_parent = widget.0;
+            if last_depth < widget.0  {
+                rects.push( (last_depth, last_rect) );
             }
             //If the new widget is higher in the tree
-            else if last_parent > widget.0  {
-                while last_parent != widget.0  {
-                    println!("last_parent {}, widget.0 {}", last_parent, widget.0);
+            else if last_depth > widget.0  {
+                while last_depth != widget.0  {
                     rects.pop();
-                    let (lp, lr) = rects.last().unwrap().clone();
-                    last_parent = lp;
+                    let (ld, lr) = rects.last().unwrap().clone();
+                    last_depth = ld;
                     last_rect = lr;
                 }
             }
             //The widget has the same parent as the previous one
             else {
-                let (lp, lr) = rects.last().unwrap().clone();
-                last_parent = lp; 
+                let (_, lr) = rects.last().unwrap().clone();
                 last_rect = lr;
             }
 
@@ -539,7 +615,10 @@ impl UI {
 
             let mut focus = false;
             for i in &self.mouse_focused_widgets {
-                if *i == widget_handle {focus = true; break; }
+                if *i == widget_handle {
+                    focus = true; 
+                    break; 
+                }
             }
 
             match widget.1 {
@@ -556,6 +635,7 @@ impl UI {
             }
 
             last_rect = final_rect;
+            last_depth = widget.0;
             index+= 1;
         }
 
@@ -583,12 +663,6 @@ mod tests {
 
     #[test]
     fn test_gui_rendering() {
-        use conrod::backend::glium::glium;
-        use glium::{DisplayBuild};
-        let display = glium::glutin::WindowBuilder::new()
-            .with_dimensions(800, 600)
-            .build_glium()
-            .unwrap();
        
         let mut ui = UI::new(800, 600);
         let main_form = ui.add_widget(-1, new_form(50, 50, 400, 300, "Test menu"));
@@ -602,7 +676,7 @@ mod tests {
         for job in jobs {
             match job {
                 RenderJob::Form { index, focus, x, y, w, h, ref title} => {
-                    println!("{}", index);
+                    //println!("{}", index);
                     assert!(index == main_form || index == second_form);
                     
                     if index == main_form {
