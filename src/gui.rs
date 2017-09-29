@@ -3,6 +3,9 @@
 extern crate std;
 extern crate cgmath;
 
+use layout;
+use conrod;
+
 #[derive(Copy, Clone)]
 pub struct Vertex {
     position: [f32; 2],
@@ -145,6 +148,26 @@ fn get_widget_rect(widget: &Widget) -> Option<Rect> {
     }
 }
 
+fn set_widget_position(widget: &mut Widget, x: i32, y: i32) {
+    match *widget {
+        Widget::Empty => (),
+        Widget::Form {ref mut position, ..} => {position.x = x; position.y = y},
+        Widget::Label {ref mut position, ..} =>  {position.x = x; position.y = y},
+        Widget::Button {ref mut position, ..} =>  {position.x = x; position.y = y},
+        Widget::Textbox{ref mut position, ..} =>  {position.x = x; position.y = y}
+    }
+}
+
+fn set_widget_size(widget: &mut Widget, width: i32, height: i32) {
+    match *widget {
+        Widget::Empty => (),
+        Widget::Form {ref mut size, ..} => {size.w = width; size.h = height},
+        Widget::Label { .. } =>  (),
+        Widget::Button {ref mut size, ..} =>  {size.w = width; size.h = height},
+        Widget::Textbox{ref mut size, ..} =>  {size.w = width; size.h = height}
+    }
+}
+
 fn get_widget_position(widget: &Widget) -> (i32, i32) {
     match *widget {
         Widget::Empty => (0, 0),
@@ -221,6 +244,8 @@ pub struct UI {
     events: Vec<WidgetEvent>,
     screen_rect: Rect,
     dragged_window: WidgetHandle,
+    pub fonts: conrod::text::font::Map,
+    pub default_font: Option<conrod::text::font::Id>,
 }
 
 impl UI {
@@ -233,6 +258,8 @@ impl UI {
             events: Vec::new(),
             screen_rect: Rect {x: 0, y: 0, w: screen_width, h: screen_height},
             dragged_window: -1,
+            fonts: conrod::text::font::Map::new(),
+            default_font: None,
         }
     }
     pub fn clear_events(&mut self) {
@@ -291,6 +318,40 @@ impl UI {
         }
 
         handle as WidgetHandle
+    }
+
+
+    fn size_hint(&self, widget: &Widget) ->(u32, u32) {
+        match *widget {
+            Widget::Empty => (0, 0),
+            Widget::Form {..} => (300, 300),
+            Widget::Label{ref text, ..} => (conrod::text::line::width(text, self.fonts.get(self.default_font.unwrap()).unwrap(), 18) as u32, 
+                                            conrod::text::height(1, 18, 0.0) as u32),
+            Widget::Button{ref text, ..} => {
+                let mut width = conrod::text::line::width(text, self.fonts.get(self.default_font.unwrap()).unwrap(), 18) as u32 + 20;
+                let height = conrod::text::height(1, 18, 0.0) as u32 + 20;
+                if width < 100 {width = 100}
+                (width, height)
+            },
+            Widget::Textbox{..} => (250, 30),
+        }
+    }
+
+    pub fn set_layout(&mut self, parent: WidgetHandle, access_closure: &Fn(&mut layout::AccessLayout)) {
+        let mut layout = layout::GridLayout::new();
+
+        layout.access(&access_closure, &|l| -> (u32, u32) {
+            let index = self.find_widget_index_by_handle(l);
+            self.size_hint(&self.widgets[index].1)
+        });
+
+        layout.update(&mut |item, rect: (u32, u32, u32, u32)| {
+            let index = self.find_widget_index_by_handle(item);
+            
+            set_widget_position(&mut self.widgets[index].1, rect.0 as i32, rect.1 as i32);
+            set_widget_size(&mut self.widgets[index].1, rect.2 as i32, rect.3 as i32 );
+        });
+
     }
 
 /***********************************************************************************

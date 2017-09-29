@@ -2,16 +2,30 @@
 #![allow(unused_variables)]
 #[macro_use]
 extern crate conrod;
+extern crate image;
+extern crate cassowary;
 
-use conrod::{widget, Colorable, Positionable, Sizeable, Borderable, Labelable, Widget};
+use conrod::{widget, text, Colorable, Positionable, Sizeable, Borderable, Labelable, Widget};
 use conrod::backend::glium::glium;
 use conrod::backend::glium::glium::{DisplayBuild, Surface};
 
 extern crate cgmath;
 
 mod gui;
+mod layout;
 use gui::UI;
 use std::collections::HashMap;
+
+// Load the Rust logo from our assets folder to use as an example image.
+fn load_rust_logo(display: &glium::Display) -> glium::texture::Texture2d {
+    let path =  concat!(env!("CARGO_MANIFEST_DIR"), "/assets/bg.jpg");
+    let rgba_image = image::open(&std::path::Path::new(&path)).unwrap().to_rgba();
+    let image_dimensions = rgba_image.dimensions();
+    let raw_image = glium::texture::RawImage2d::from_raw_rgba_reversed(rgba_image.into_raw(), image_dimensions);
+    let texture = glium::texture::Texture2d::new(display, raw_image).unwrap();
+    texture
+}
+
 
 fn main() {
     const WIDTH: u32 = 800;
@@ -30,18 +44,35 @@ fn main() {
     const FONT_PATH: &'static str =
         concat!(env!("CARGO_MANIFEST_DIR"), "/assets/fonts/Dogma/Dogma.ttf");
     conrod_ui.fonts.insert_from_file(FONT_PATH).unwrap();
+    let font_handle = ui.fonts.insert_from_file(FONT_PATH).unwrap();
+    ui.default_font = Some(font_handle);
+
     let mut renderer = conrod::backend::glium::Renderer::new(&display).unwrap();
     let image_map = conrod::image::Map::<glium::texture::Texture2d>::new();
 
-    let a_button1 = ui.add_widget(-1, gui::new_button(350, 40, 200, 40, "Ok"));
-    let a_button2 = ui.add_widget(-1, gui::new_button(350, 100, 200, 40, "Ok"));
-    let a_button3 = ui.add_widget(-1, gui::new_button(350, 150, 200, 40, "Ok"));
-    let a_button4 = ui.add_widget(-1, gui::new_button(350, 200, 200, 40, "Ok"));
+    
     let main_form = ui.add_widget(-1, gui::new_form(50, 50, 400, 300, "Main Menu"));
     let main_label = ui.add_widget(main_form, gui::new_label(10, 40, "Hello."));
     let main_button = ui.add_widget(main_form, gui::new_button(10, 40, 100, 40, "OK."));
     let a_label = ui.add_widget(main_form, gui::new_label(20, 100, "Hello again."));
     let another_form = ui.add_widget(-1, gui::new_form(300, 300, 300, 300,"Other form"));
+    let game_label = ui.add_widget(another_form, gui::new_label(0, 0, "RPG"));
+    let a_button1 = ui.add_widget(another_form, gui::new_button(350, 40, 200, 40, "Resume Quest"));
+    let a_button2 = ui.add_widget(another_form, gui::new_button(350, 100, 200, 40, "New Character"));
+    let a_button3 = ui.add_widget(another_form, gui::new_button(350, 150, 200, 40, "Credits"));
+    let a_button4 = ui.add_widget(another_form, gui::new_button(350, 200, 200, 40, "Quit"));
+    ui.set_layout(main_form, &|ref mut l| {
+        l.add(main_label);
+        l.add(main_button);
+        l.add(a_label);
+    });
+    ui.set_layout(another_form, &|ref mut l| {
+        l.add(game_label).wrap();
+        l.add(a_button1).wrap();
+        l.add(a_button2).wrap();
+        l.add(a_button3).wrap();
+        l.add(a_button4).wrap();
+    });
 
 	let mut running = true;
     let mut mouse_x = 0;
@@ -52,6 +83,16 @@ fn main() {
     	
     let mut half_screen_w = WIDTH as f64 / 2.0;
     let mut half_screen_h = HEIGHT as f64 / 2.0;
+
+// The `WidgetId` for our background and `Image` widgets.
+    widget_ids!(struct Ids { rust_logo });
+    let ids = Ids::new(conrod_ui.widget_id_generator());
+
+    let rust_logo = load_rust_logo(&display);
+    let (w, h) = (rust_logo.get_width(), rust_logo.get_height().unwrap());
+    let mut image_map = conrod::image::Map::new();
+    let rust_logo = image_map.insert(rust_logo);
+
 
     use glium::glutin::{Event, ElementState, MouseButton};
     while running {
@@ -101,6 +142,8 @@ fn main() {
             }
 
             let ui = &mut conrod_ui.set_widgets();
+
+             widget::Image::new(rust_logo).w_h(w as f64, h as f64).middle().set(ids.rust_logo, ui);
 
             for render_job in &render_jobs {
                 let i: conrod::widget::id::Id;

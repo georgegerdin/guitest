@@ -7,4 +7,5 @@ authors = ["george"]
 cgmath="*"
 libc="0.2"
 conrod = { version="*", features = ["winit", "glium"] }
-
+image="*"
+cassowary="*"
