@@ -150,7 +150,7 @@ pub struct AccessLayout {
     actions: Vec<Action>,
 }
 
-struct WrapOnlyAccessLayout<'a> {
+pub struct WrapOnlyAccessLayout<'a> {
     access_layout: &'a mut AccessLayout
 }
 

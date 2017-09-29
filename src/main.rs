@@ -17,12 +17,18 @@ use gui::UI;
 use std::collections::HashMap;
 
 // Load the Rust logo from our assets folder to use as an example image.
-fn load_rust_logo(display: &glium::Display) -> glium::texture::Texture2d {
+fn load_rust_logo(display: &glium::Display) -> glium::texture::SrgbTexture2d {
     let path =  concat!(env!("CARGO_MANIFEST_DIR"), "/assets/bg.jpg");
     let rgba_image = image::open(&std::path::Path::new(&path)).unwrap().to_rgba();
     let image_dimensions = rgba_image.dimensions();
     let raw_image = glium::texture::RawImage2d::from_raw_rgba_reversed(rgba_image.into_raw(), image_dimensions);
-    let texture = glium::texture::Texture2d::new(display, raw_image).unwrap();
+
+ /*   let texture = glium::texture::Texture2d::with_format(
+        &display, raw_image, 
+        glium::texture::UncompressedFloatFormat::F32F32F32, 
+        glium::texture::MipmapsOption::NoMipmap).unwrap();
+   */ 
+    let texture = glium::texture::SrgbTexture2d::new(display, raw_image).unwrap();
     texture
 }
 
